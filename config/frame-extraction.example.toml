@@ -1,0 +1,5 @@
+[frame_extraction]
+strategy = "interval"
+interval_ms = 5000
+scene_relative_offsets = [0.5]
+image_format = "jpg"

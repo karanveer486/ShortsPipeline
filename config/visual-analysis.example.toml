@@ -1,0 +1,6 @@
+[visual_analysis]
+backend = "ollama"
+model = "qwen2.5vl:7b"
+endpoint = "http://127.0.0.1:11434/api/chat"
+timeout_seconds = 90
+max_frames_per_request = 4

@@ -1,0 +1,11 @@
+# Copy relevant tables into ignored config/pipeline.toml for local overrides.
+
+[transcription]
+model = "base"
+# language = "en"
+# device = "cpu"
+
+[scene_detection]
+detector = "content"
+threshold = 27.0
+min_scene_len = 15

@@ -1,0 +1,13 @@
+# Tracked example configuration only. Keep machine-specific overrides in an
+# ignored local config file or environment variables.
+
+[workspace]
+root = "workspace"
+
+[pipeline]
+# Reserved for future orchestration settings.
+name = "shorts-pipeline"
+
+[vlm]
+# A future adapter will select a local or remote backend. No backend exists yet.
+backend = "unconfigured"

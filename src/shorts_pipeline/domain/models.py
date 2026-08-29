@@ -510,6 +510,28 @@ class TargetFormat(JsonModel):
 
 
 @dataclass(frozen=True)
+class RenderSourceSegment(JsonModel):
+    """One ordered, unmodified source interval used by a render plan."""
+
+    scene_id: str
+    time_range: TimeRange
+    index: int
+
+    def __post_init__(self) -> None:
+        _require_id(self.scene_id, "scene_id")
+        if not isinstance(self.time_range, TimeRange):
+            raise ValueError("time_range must be TimeRange")
+        _require_non_negative_int(self.index, "index")
+
+    def to_dict(self) -> dict[str, JsonValue]:
+        return {"scene_id": self.scene_id, "time_range": self.time_range.to_dict(), "index": self.index}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "RenderSourceSegment":
+        return cls(data["scene_id"], TimeRange.from_dict(data["time_range"]), data["index"])
+
+
+@dataclass(frozen=True)
 class RenderPlan(JsonModel):
     plan_id: str
     candidate_id: str
@@ -517,6 +539,14 @@ class RenderPlan(JsonModel):
     framing: Mapping[str, JsonValue]
     captions: Mapping[str, JsonValue] | None = None
     metadata: Mapping[str, JsonValue] = field(default_factory=dict)
+    source_id: str | None = None
+    source_time_range: TimeRange | None = None
+    source_segments: tuple[RenderSourceSegment, ...] = ()
+    output_duration_ms: int | None = None
+    audio: Mapping[str, JsonValue] = field(default_factory=dict)
+    transition: Mapping[str, JsonValue] = field(default_factory=dict)
+    output: Mapping[str, JsonValue] = field(default_factory=dict)
+    plan_version: str = "1"
 
     def __post_init__(self) -> None:
         _require_id(self.plan_id, "plan_id")
@@ -529,18 +559,47 @@ class RenderPlan(JsonModel):
         if self.captions is not None:
             object.__setattr__(self, "captions", _metadata(self.captions))
         object.__setattr__(self, "metadata", _metadata(self.metadata))
+        if self.source_id is not None:
+            _require_id(self.source_id, "source_id")
+        if self.source_time_range is not None and not isinstance(self.source_time_range, TimeRange):
+            raise ValueError("source_time_range must be TimeRange")
+        if any(not isinstance(segment, RenderSourceSegment) for segment in self.source_segments):
+            raise ValueError("source_segments must contain RenderSourceSegment values")
+        if self.source_segments:
+            ordered = tuple(sorted(self.source_segments, key=lambda segment: segment.index))
+            if ordered != self.source_segments:
+                raise ValueError("source_segments must be ordered by index")
+            if any(right.time_range.start_ms < left.time_range.end_ms for left, right in zip(ordered, ordered[1:])):
+                raise ValueError("source_segments must not overlap")
+        if self.output_duration_ms is not None:
+            _require_non_negative_int(self.output_duration_ms, "output_duration_ms")
+            if self.output_duration_ms == 0:
+                raise ValueError("output_duration_ms must be greater than zero")
+        for name in ("audio", "transition", "output"):
+            object.__setattr__(self, name, _metadata(getattr(self, name)))
+        _require_id(self.plan_version, "plan_version")
 
     def to_dict(self) -> dict[str, JsonValue]:
         return {"plan_id": self.plan_id, "candidate_id": self.candidate_id, "target": self.target.to_dict(),
                 "framing": dict(self.framing), "captions": dict(self.captions) if self.captions else None,
-                "metadata": dict(self.metadata)}
+                "metadata": dict(self.metadata), "source_id": self.source_id,
+                "source_time_range": self.source_time_range.to_dict() if self.source_time_range else None,
+                "source_segments": [segment.to_dict() for segment in self.source_segments],
+                "output_duration_ms": self.output_duration_ms, "audio": dict(self.audio),
+                "transition": dict(self.transition), "output": dict(self.output),
+                "plan_version": self.plan_version}
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "RenderPlan":
         return cls(plan_id=data["plan_id"], candidate_id=data["candidate_id"],
                    target=TargetFormat.from_dict(data["target"]), framing=data["framing"],
-                   captions=data.get("captions"), metadata=data.get("metadata", {}))
-
+                   captions=data.get("captions"), metadata=data.get("metadata", {}),
+                   source_id=data.get("source_id"),
+                   source_time_range=TimeRange.from_dict(data["source_time_range"]) if data.get("source_time_range") else None,
+                   source_segments=tuple(RenderSourceSegment.from_dict(item) for item in data.get("source_segments", ())),
+                   output_duration_ms=data.get("output_duration_ms"), audio=data.get("audio", {}),
+                   transition=data.get("transition", {}), output=data.get("output", {}),
+                   plan_version=data.get("plan_version", "1"))
 
 @dataclass(frozen=True)
 class RenderOutput(JsonModel):

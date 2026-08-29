@@ -1,0 +1,12 @@
+# Copy to an ignored local file and pass it with --config when overrides are needed.
+[render_planning]
+width = 1080
+height = 1920
+# frame_rate = 30.0  # Omit to retain the source frame rate.
+container = "mp4"
+video_codec = "h264"
+audio_codec = "aac"
+framing_strategy = "center_crop" # center_crop, fit_with_blur, source_aspect
+caption_strategy = "transcript_based" # transcript_based, disabled
+audio_strategy = "preserve_source_audio"
+transition_strategy = "hard_cut"

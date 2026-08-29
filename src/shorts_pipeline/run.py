@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 from hashlib import sha256
 import json
 from pathlib import Path
 import sys
 from typing import Callable
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 from .adapters.evaluation.ollama import OllamaCandidateEvaluator
 from .adapters.reasoning.ollama import OllamaVideoReasoner
@@ -36,37 +34,61 @@ class PipelineRunError(RuntimeError):
 Downloader = Callable[[str, Path], Path]
 
 
-def download_source(url: str, workspace_root: str | Path) -> Path:
-    """Download one HTTP(S) source into ignored runtime storage, atomically."""
+def _yt_dlp_factory(options: dict[str, object]):
+    try:
+        import yt_dlp
+    except ImportError as error:
+        raise PipelineRunError("yt-dlp is required for URL downloads; run the project installer first") from error
+    return yt_dlp.YoutubeDL(options)
+
+
+def _existing_download(downloads: Path, stem: str) -> Path | None:
+    media_extensions = {".mp4", ".m4v", ".mkv", ".webm", ".mov", ".avi"}
+    choices = [path for path in downloads.glob(f"{stem}.*") if path.is_file() and path.suffix.lower() in media_extensions and path.stat().st_size > 0]
+    return max(choices, key=lambda path: path.stat().st_size) if choices else None
+
+
+def download_source(url: str, workspace_root: str | Path, *, ydl_factory=_yt_dlp_factory) -> Path:
+    """Download one HTTP(S), including YouTube, source into runtime-only storage."""
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise PipelineRunError("source URL must be an absolute http:// or https:// URL")
     downloads = Path(workspace_root) / "downloads"
-    suffix = Path(parsed.path).suffix.lower()
-    if not suffix or len(suffix) > 10 or not suffix[1:].isalnum():
-        suffix = ".video"
-    destination = downloads / f"source-{sha256(url.encode('utf-8')).hexdigest()[:20]}{suffix}"
-    if destination.is_file() and destination.stat().st_size > 0:
-        return destination
-    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    stem = f"source-{sha256(url.encode('utf-8')).hexdigest()[:20]}"
     try:
         downloads.mkdir(parents=True, exist_ok=True)
-        request = Request(url, headers={"User-Agent": "ShortsPipeline/0.1"})
-        with urlopen(request, timeout=60) as response, temporary.open("wb") as output:
-            while chunk := response.read(1024 * 1024):
-                output.write(chunk)
-        if not temporary.is_file() or temporary.stat().st_size == 0:
-            raise PipelineRunError("source download produced an empty file")
-        temporary.replace(destination)
+        existing = _existing_download(downloads, stem)
+        if existing is not None:
+            return existing
+        temporary_directory = downloads / f".{stem}.tmp"
+        if temporary_directory.exists():
+            import shutil
+            shutil.rmtree(temporary_directory)
+        temporary_directory.mkdir()
+        options = {
+            "format": "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a][acodec^=mp4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best",
+            "merge_output_format": "mp4",
+            "outtmpl": str(temporary_directory / f"{stem}.%(ext)s"),
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+        }
+        with ydl_factory(options) as downloader:
+            downloader.extract_info(url, download=True)
+        source = _existing_download(temporary_directory, stem)
+        if source is None:
+            raise PipelineRunError("yt-dlp did not produce a usable local video file")
+        destination = downloads / f"{stem}{source.suffix.lower()}"
+        source.replace(destination)
         return destination
     except PipelineRunError:
         raise
     except Exception as error:
-        raise PipelineRunError(f"could not download source URL: {error}") from error
+        raise PipelineRunError(f"yt-dlp could not download source URL: {error}") from error
     finally:
-        if temporary.exists():
-            temporary.unlink()
-
+        if 'temporary_directory' in locals() and temporary_directory.exists():
+            import shutil
+            shutil.rmtree(temporary_directory)
 
 def _selected_candidate(run_directory: Path, candidate_id: str | None) -> str:
     if candidate_id:

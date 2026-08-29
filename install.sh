@@ -14,6 +14,7 @@ if [[ ! -x "$VENV/bin/python" ]]; then "$PYTHON_BIN" -m venv "$VENV"; fi
 "$VENV/bin/python" -m pip install --upgrade pip
 "$VENV/bin/python" -m pip install -r "$ROOT/requirements.txt"
 "$VENV/bin/python" -m pip install -e "$ROOT"
+"$VENV/bin/python" -c "import yt_dlp" || fail "yt-dlp was not installed inside .venv."
 
 for tool in ffmpeg ffprobe; do command -v "$tool" >/dev/null || fail "$tool is required on PATH (Ubuntu: sudo apt-get update && sudo apt-get install -y ffmpeg)."; done
 if command -v nvidia-smi >/dev/null; then nvidia-smi --query-gpu=name,driver_version --format=csv,noheader || fail "nvidia-smi could not verify the GPU/CUDA runtime."; else echo "WARNING: nvidia-smi is unavailable; GPU acceleration cannot be verified." >&2; fi

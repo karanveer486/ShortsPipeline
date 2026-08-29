@@ -9,23 +9,44 @@ from shorts_pipeline.ingestion import ingest_local_source
 from shorts_pipeline.run import PipelineRunError, download_source, run_pipeline
 
 
-class FakeResponse:
-    def __init__(self): self.parts = [b"video", b""]
-    def read(self, _size): return self.parts.pop(0)
-    def __enter__(self): return self
-    def __exit__(self, *_args): return False
+class FakeYoutubeDL:
+    calls = []
+
+    def __init__(self, options):
+        self.options = options
+        FakeYoutubeDL.calls.append(options)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def extract_info(self, _url, *, download):
+        self.download = download
+        Path(self.options["outtmpl"].replace("%(ext)s", "mp4")).write_bytes(b"video")
+        return {"id": "synthetic"}
 
 
 class RunTests(unittest.TestCase):
-    def test_downloader_is_atomic_reusable_and_rejects_non_http(self):
-        with tempfile.TemporaryDirectory() as directory, patch("shorts_pipeline.run.urlopen", return_value=FakeResponse()) as opener:
+    def test_downloader_uses_ytdlp_atomically_and_reuses_media(self):
+        with tempfile.TemporaryDirectory() as directory:
+            FakeYoutubeDL.calls.clear()
             root = Path(directory) / "workspace"
-            first = download_source("https://example.test/video.mp4", root)
-            second = download_source("https://example.test/video.mp4", root)
+            first = download_source("https://www.youtube.com/watch?v=synthetic", root, ydl_factory=FakeYoutubeDL)
+            second = download_source("https://www.youtube.com/watch?v=synthetic", root, ydl_factory=FakeYoutubeDL)
             self.assertEqual(first, second)
+            self.assertEqual(first.suffix, ".mp4")
             self.assertEqual(first.read_bytes(), b"video")
-            self.assertEqual(opener.call_count, 1)
-            with self.assertRaises(PipelineRunError): download_source("file:///not-allowed.mp4", root)
+            self.assertEqual(len(FakeYoutubeDL.calls), 1)
+            options = FakeYoutubeDL.calls[0]
+            self.assertIn("vcodec^=avc1", options["format"])
+            self.assertIn("acodec^=mp4a", options["format"])
+            self.assertEqual(options["merge_output_format"], "mp4")
+            self.assertFalse(any(path.is_dir() and path.name.endswith(".tmp") for path in (root / "downloads").iterdir()))
+            with self.assertRaises(PipelineRunError):
+                download_source("file:///not-allowed.mp4", root, ydl_factory=FakeYoutubeDL)
+
 
     def test_orchestration_passes_one_run_and_writes_summary(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -2,3 +2,4 @@
 openai-whisper==20250625
 opencv-python>=4.11
 scenedetect==0.7.1
+yt-dlp>=2025.1.15

@@ -13,6 +13,7 @@ if (-not (Test-Path -LiteralPath $VenvPython)) { & $Python -m venv $Venv; Assert
 & $VenvPython -m pip install --upgrade pip; Assert-LastExit "Could not upgrade pip in .venv."
 & $VenvPython -m pip install -r (Join-Path $Root "requirements.txt"); Assert-LastExit "Could not install requirements into .venv."
 & $VenvPython -m pip install -e $Root; Assert-LastExit "Could not install ShortsPipeline in editable mode."
+& $VenvPython -c "import yt_dlp"; Assert-LastExit "yt-dlp was not installed inside .venv."
 
 foreach ($tool in @("ffmpeg", "ffprobe")) { if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { Fail "$tool is required on PATH." } }
 if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { & nvidia-smi --query-gpu=name,driver_version --format=csv,noheader; Assert-LastExit "nvidia-smi could not verify the GPU/CUDA runtime." } else { Write-Warning "nvidia-smi is unavailable; GPU/CUDA cannot be verified." }
